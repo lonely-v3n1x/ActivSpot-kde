@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+BACKEND_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compositor_backend.sh"
 
 # ============================================================================
 # 1. ZOMBIE PREVENTION
@@ -30,67 +31,66 @@ fi
 (timeout 2 bluetoothctl scan off > /dev/null 2>&1) &
 # ---------------------------------------------
 
-# Configuration: How many workspaces do you want to show?
+# Configuration fallback: How many workspaces do you want to show?
 SEQ_END=8
 
 print_workspaces() {
-    # Get raw data with a timeout fallback
-    spaces=$(timeout 2 hyprctl workspaces -j 2>/dev/null)
-    active=$(timeout 2 hyprctl activeworkspace -j 2>/dev/null | jq '.id')
+    local backend active end
+    backend="$("$BACKEND_HELPER" detect_backend)"
+    active="$("$BACKEND_HELPER" current_workspace 2>/dev/null)"
+    end="$("$BACKEND_HELPER" workspace_count 2>/dev/null)"
 
-    # Failsafe if hyprctl crashes to prevent jq from outputting errors
-    if [ -z "$spaces" ] || [ -z "$active" ]; then return; fi
+    [[ "$active" =~ ^[0-9]+$ ]] || active=1
+    [[ "$end" =~ ^[0-9]+$ ]] || end="$SEQ_END"
+    (( end < 1 )) && end=1
+    (( end > 12 )) && end=12
 
-    # Generate the JSON and write it atomically to prevent UI flickering
-    echo "$spaces" | jq --unbuffered --argjson a "$active" --arg end "$SEQ_END" -c '
-        # Create a map of workspace ID -> workspace data for easy lookup
-        (map( { (.id|tostring): . } ) | add) as $s
-        |
-        # Iterate from 1 to SEQ_END
-        [range(1; ($end|tonumber) + 1)] | map(
-            . as $i |
-            # Determine state: active -> occupied -> empty
-            (if $i == $a then "active"
-             elif ($s[$i|tostring] != null and $s[$i|tostring].windows > 0) then "occupied"
-             else "empty" end) as $state |
+    if [ "$backend" = "hyprland" ]; then
+        local spaces
+        spaces=$(timeout 2 hyprctl workspaces -j 2>/dev/null)
+        if [ -z "$spaces" ]; then return; fi
+        echo "$spaces" | jq --unbuffered --argjson a "$active" --arg end "$end" -c '
+            (map( { (.id|tostring): . } ) | add) as $s
+            |
+            [range(1; ($end|tonumber) + 1)] | map(
+                . as $i |
+                (if $i == $a then "active"
+                 elif ($s[$i|tostring] != null and $s[$i|tostring].windows > 0) then "occupied"
+                 else "empty" end) as $state |
+                (if $s[$i|tostring] != null then $s[$i|tostring].lastwindowtitle else "Workspace \($i)" end) as $win |
+                { id: $i, state: $state, tooltip: $win }
+            )
+        ' > /tmp/qs_workspaces.tmp
+    else
+        jq -n --argjson a "$active" --arg end "$end" -c '
+            [range(1; ($end|tonumber) + 1)] | map(
+                . as $i |
+                { id: $i, state: (if $i == $a then "active" else "empty" end), tooltip: "Workspace \($i)" }
+            )
+        ' > /tmp/qs_workspaces.tmp
+    fi
 
-            # Get window title for tooltip (if exists)
-            (if $s[$i|tostring] != null then $s[$i|tostring].lastwindowtitle else "Empty" end) as $win |
-
-            {
-                id: $i,
-                state: $state,
-                tooltip: $win
-            }
-        )
-    ' > /tmp/qs_workspaces.tmp
-    
     mv /tmp/qs_workspaces.tmp /tmp/qs_workspaces.json
 }
 
 # Print initial state
 print_workspaces
 
-# ============================================================================
-# 2. THE EVENT DEBOUNCER
-# Listen to Hyprland socket wrapped in an infinite loop
-# ============================================================================
-while true; do
-    socat -u UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock - | while read -r line; do
-        case "$line" in
-            workspace*|focusedmon*|activewindow*|createwindow*|closewindow*|movewindow*|destroyworkspace*)
-                
-                # -> THE FIX <-
-                # Hyprland emits HUNDREDS of events a second when you move/resize windows.
-                # This reads and discards all subsequent events arriving within a 50ms window.
-                # It bundles the storm into a single UI update, completely preventing CPU clogging!
-                while read -t 0.05 -r extra_line; do
-                    continue
-                done
-
-                print_workspaces
-                ;;
-        esac
+if [ "$("$BACKEND_HELPER" detect_backend)" = "hyprland" ] && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    while true; do
+        socat -u UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock - | while read -r line; do
+            case "$line" in
+                workspace*|focusedmon*|activewindow*|createwindow*|closewindow*|movewindow*|destroyworkspace*)
+                    while read -t 0.05 -r _; do continue; done
+                    print_workspaces
+                    ;;
+            esac
+        done
+        sleep 1
     done
-    sleep 1
-done
+else
+    while true; do
+        sleep 1
+        print_workspaces
+    done
+fi

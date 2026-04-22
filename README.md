@@ -1,9 +1,9 @@
-# ActivSpot — Dynamic Island for Hyprland
+# ActivSpot-kde — Dynamic Island for KDE Plasma
 
 <img width="1946" height="95" alt="image" src="https://github.com/user-attachments/assets/a7ede955-5f4f-4315-ab26-dc21555a0c17" />
 
 
-My vision of a dynamic island for Hyprland. Originally developed for personal use, shared after genuine interest from the Reddit community.
+KDE Plasma-compatible port of ActivSpot with the original QML UX preserved as closely as possible.
 
 > Based on [nixos-configuration](https://github.com/ilyamiro/nixos-configuration) by ilyamiro
 
@@ -26,45 +26,65 @@ My vision of a dynamic island for Hyprland. Originally developed for personal us
 
 ---
 
-## Stack
+## Supported environment
 
-| Component     | Technology              |
-|---------------|-------------------------|
-| Shell         | Quickshell              |
-| Language      | QML                     |
-| Compositor    | Hyprland                |
-| IPC           | inotifywait on /tmp/qs_* |
-| Music         | playerctl               |
-| Weather       | wttr.in                 |
-| Clipboard     | cliphist + wl-copy      |
-| Notifications | custom daemon           |
+- KDE Plasma 6 (Wayland preferred)
+- KWin DBus available (`qdbus`)
+- Quickshell + QML
+- X11 session may run with reduced behavior depending on local tools
 
 ---
 
-## Dependencies
-quickshell inotify-tools playerctl cliphist wl-clipboard
-python3 gtk-launch flatpak (optional)
-JetBrains Mono, Iosevka Nerd Font
+## Dependency check
+
+Run:
+
+```bash
+bash scripts/check_kde_deps.sh
+```
+
+Required runtime commands:
+- quickshell
+- inotify-tools
+- jq
+- playerctl
+- qdbus
 
 ---
 
-## Installation
+## Run on KDE Plasma
 
-Clone repo
+```bash
+git clone https://github.com/lonely-v3n1x/ActivSpot-kde.git
+cd ActivSpot-kde
+bash scripts/run_kde.sh
+```
 
-Run instalation script
-
----
-
-## Keybinds
-
-| Bind          | Action           |
-|---------------|------------------|
-| Super + Space | App Launcher     |
-| Super + C     | Clipboard Viewer |
+This script:
+- validates KDE-compatible dependencies
+- links this repo into `~/.config/hypr` for current script compatibility
+- starts the core windows (`Main.qml`, `TopBar.qml`, `DynamicIsland.qml`, `AppLauncher.qml`, `ClipboardViewer.qml`)
 
 ---
 
-## Architecture
+## Hyprland → KDE replacement mapping
 
-Each component is a separate `PanelWindow`. IPC works via `inotifywait` on `/tmp/qs_*` files — no sockets, no daemons. The island hides itself when the launcher opens via `/tmp/qs_launcher_state`, creating a morph illusion since both windows share the same top-center position.
+| Previous integration | KDE/portable replacement |
+|---|---|
+| `hyprctl workspaces`, Hypr socket `.socket2.sock` in `workspaces.sh` | `qdbus org.kde.KWin` workspace queries + polling fallback |
+| `hyprctl switchxkblayout` | `qdbus org.kde.keyboard ... switchToNextLayout` (fallback-safe) |
+| Hypr keyboard layout socket listeners | `compositor_backend.sh get_keyboard_layout` + wait abstraction |
+| `hyprctl dispatch workspace` in `qs_manager.sh` | backend abstraction (`switch_workspace` / `move_to_workspace`) using KWin DBus on Plasma |
+| FocusTime active window via Hyprland IPC only | Hyprland path retained + KDE polling fallback via KWin DBus |
+
+---
+
+## Architecture notes
+
+Each component remains a separate `PanelWindow`. The top-center dynamic island behavior still uses the existing `WindowRegistry.js` placement math and QML transitions. IPC still uses `/tmp/qs_*` files.
+
+## Known limitations vs Hyprland build
+
+- Workspace occupancy details are Hyprland-only; KDE fallback currently marks only the active workspace.
+- Some advanced modules (for example monitor profile editing that writes `hyprland.conf`) remain Hyprland-oriented.
+- Keyboard layout switching relies on `org.kde.keyboard` DBus methods present in standard Plasma sessions.

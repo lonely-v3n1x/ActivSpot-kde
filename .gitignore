@@ -5,3 +5,5 @@ scripts/quickshell/calendar/.env
 scripts/quickshell/qs_colors.json
 scripts/quickshell/colors.json
 hyprland.conf.save
+__pycache__/
+*.pyc
