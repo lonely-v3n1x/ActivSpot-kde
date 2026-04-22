@@ -12,6 +12,7 @@ THUMB_DIR="$HOME/.cache/wallpaper_picker/thumbs"
 # User-specific cache directory matching the QML logic
 QS_NETWORK_CACHE="${XDG_RUNTIME_DIR:-$HOME/.cache}/qs_network"
 mkdir -p "$QS_NETWORK_CACHE"
+BACKEND_HELPER="$QS_DIR/quickshell/compositor_backend.sh"
 
 IPC_FILE="/tmp/qs_widget_state"
 NETWORK_MODE_FILE="$QS_NETWORK_CACHE/mode"
@@ -26,10 +27,12 @@ SUBTARGET="$3"
 if [[ "$ACTION" =~ ^[0-9]+$ ]]; then
     WORKSPACE_NUM="$ACTION"
     echo "close" > "$IPC_FILE"
-    
-    CMD="workspace $WORKSPACE_NUM"
-    [[ "$2" == "move" ]] && CMD="movetoworkspace $WORKSPACE_NUM"
-    hyprctl --batch "dispatch $CMD" >/dev/null 2>&1
+
+    if [[ "$2" == "move" ]]; then
+        "$BACKEND_HELPER" move_to_workspace "$WORKSPACE_NUM" >/dev/null 2>&1
+    else
+        "$BACKEND_HELPER" switch_workspace "$WORKSPACE_NUM" >/dev/null 2>&1
+    fi
     exit 0
 fi
 

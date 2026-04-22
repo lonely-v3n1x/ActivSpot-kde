@@ -173,7 +173,7 @@ ShellRoot {
                 
                 Process {
                     id: kbPoller
-                    command: ["bash", "-c", "hyprctl devices -j | jq -r '.keyboards[] | select(.main == true) | .active_keymap' | head -n1 | cut -c1-2 | tr '[:lower:]' '[:upper:]'"]
+                    command: ["bash", "-c", "~/.config/hypr/scripts/quickshell/compositor_backend.sh get_keyboard_layout"]
                     stdout: StdioCollector {
                         onStreamFinished: {
                             let layout = this.text.trim();

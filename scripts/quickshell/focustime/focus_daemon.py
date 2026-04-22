@@ -10,6 +10,7 @@ import calendar
 import re
 import signal
 import sys
+import shutil
 from datetime import date, datetime, timedelta
 from collections import defaultdict
 
@@ -157,12 +158,57 @@ def get_active_window_hyprctl():
     except Exception:
         return "Unknown", "Unknown"
 
+def get_active_window_kde():
+    try:
+        if shutil.which("qdbus") is None:
+            return "Unknown", "Unknown"
+
+        wid = subprocess.check_output(
+            ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow'],
+            text=True
+        ).strip()
+        if not wid:
+            return "Desktop", "Desktop"
+
+        info = subprocess.check_output(
+            ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.getWindowInfo', wid],
+            text=True
+        )
+        text = info.strip()
+        if not text:
+            return "Unknown", "Unknown"
+
+        app_cls = "Unknown"
+        raw_title = "Unknown"
+        for line in text.splitlines():
+            if line.startswith("resourceClass:"):
+                app_cls = line.split(":", 1)[1].strip() or app_cls
+            elif line.startswith("caption:"):
+                raw_title = line.split(":", 1)[1].strip() or raw_title
+
+        if "quickshell" in app_cls.lower() or "qs-master" in raw_title.lower():
+            return "Quickshell", "Quickshell"
+
+        clean_name = resolve_app_name(app_cls, raw_title)
+        return app_cls, clean_name
+    except Exception:
+        return "Unknown", "Unknown"
+
+def get_active_window():
+    if shutil.which("hyprctl") and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return get_active_window_hyprctl()
+    return get_active_window_kde()
+
 def is_locked():
     try:
         subprocess.check_output(['pgrep', '-x', 'hyprlock'])
         return True
     except subprocess.CalledProcessError:
-        return False
+        try:
+            subprocess.check_output(['pgrep', '-x', 'kscreenlocker_greet'])
+            return True
+        except subprocess.CalledProcessError:
+            return False
 
 def listen_hyprland_ipc():
     global current_app_class, current_app_title
@@ -192,6 +238,19 @@ def listen_hyprland_ipc():
                             current_app_class, current_app_title = cls, clean_title
         except Exception:
             time.sleep(2) 
+
+def listen_kde_poll():
+    global current_app_class, current_app_title
+    last = ("", "")
+    while True:
+        cls, clean_title = get_active_window_kde()
+        if (cls, clean_title) != last:
+            if cls == "kscreenlocker_greet" or is_locked():
+                current_app_class, current_app_title = "Locked", "Locked"
+            else:
+                current_app_class, current_app_title = cls, clean_title
+            last = (cls, clean_title)
+        time.sleep(1)
 
 
 class DaemonTracker:
@@ -432,9 +491,13 @@ def main():
     signal.signal(signal.SIGINT, exit_handler)
     signal.signal(signal.SIGTERM, exit_handler)
 
-    current_app_class, current_app_title = get_active_window_hyprctl()
-    
-    ipc_thread = threading.Thread(target=listen_hyprland_ipc, daemon=True)
+    current_app_class, current_app_title = get_active_window()
+
+    if shutil.which("hyprctl") and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        ipc_target = listen_hyprland_ipc
+    else:
+        ipc_target = listen_kde_poll
+    ipc_thread = threading.Thread(target=ipc_target, daemon=True)
     ipc_thread.start()
 
     tick_counter = 0

@@ -1426,30 +1426,13 @@ PanelWindow {
         }
     }
 
-    // Hyprland layout watcher — listens to socket2 activelayout events
+    // Keyboard layout watcher (Hyprland socket when available, KDE/generic polling fallback)
     Process {
         id: layoutWatcher; running: true
         command: ["bash", "-c",
-            "sock=\"$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock\"; " +
-            "socat - \"UNIX-CONNECT:$sock\" 2>/dev/null | " +
-            "grep --line-buffered '^activelayout>>' | " +
-            "while IFS= read -r line; do " +
-            "  layout=\"${line##*,}\"; " +
-            "  case \"$layout\" in " +
-            "    *Russian*)     echo 'Russian' ;; " +
-            "    *English*|*US*) echo 'English' ;; " +
-            "    *Ukrainian*)   echo 'Ukrainian' ;; " +
-            "    *German*)      echo 'German' ;; " +
-            "    *French*)      echo 'French' ;; " +
-            "    *Spanish*)     echo 'Spanish' ;; " +
-            "    *Polish*)      echo 'Polish' ;; " +
-            "    *Turkish*)     echo 'Turkish' ;; " +
-            "    *Arabic*)      echo 'Arabic' ;; " +
-            "    *Chinese*)     echo 'Chinese' ;; " +
-            "    *Japanese*)    echo 'Japanese' ;; " +
-            "    *Korean*)      echo 'Korean' ;; " +
-            "    *)             echo \"$layout\" ;; " +
-            "  esac; " +
+            "while true; do " +
+            "  ~/.config/hypr/scripts/quickshell/compositor_backend.sh wait_keyboard_change >/dev/null 2>&1; " +
+            "  ~/.config/hypr/scripts/quickshell/compositor_backend.sh get_keyboard_layout; " +
             "done"
         ]
         stdout: SplitParser {
